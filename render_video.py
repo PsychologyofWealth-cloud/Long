@@ -13,7 +13,7 @@ chat_id = os.environ.get('CHAT_ID')
 telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 
 # 👇 Channel Watermark
-channel_name = "Dark Psychology®" 
+channel_name = "Psychology®" 
 
 print(f"DEBUG: Processing {len(scenes_data)} scenes async...")
 
@@ -207,7 +207,7 @@ async def main_pipeline():
         
         run_id = os.environ.get('GITHUB_RUN_ID', str(int(time.time())))
         tag_name = f"vid-{run_id}"
-        repo_name = "DarkPsychology-hub/Long" 
+        repo_name = "PsychologyofWealth-cloud/Long" 
         
         try:
             cmd = ['gh', 'release', 'create', tag_name, final_video, '--repo', repo_name, '--notes', 'Automated Video Render']
