@@ -5,20 +5,20 @@ import shutil
 
 # --- VARIABLES ---
 scenes_data = json.loads(os.environ.get('SCENES_DATA', '[]'))
-title = os.environ.get('TITLE', 'Dark Psychology Documentary')
-description = os.environ.get('DESCRIPTION', 'Uncovering the dark truths of human behavior.')
-thumbnail_prompt = os.environ.get('THUMBNAIL_PROMPT', 'Cinematic dark psychological thumbnail')
+title = os.environ.get('TITLE', 'The Psychology of Wealth')
+description = os.environ.get('DESCRIPTION', 'Master your financial mindset and learn the secrets of the 1%.')
+thumbnail_prompt = os.environ.get('THUMBNAIL_PROMPT', 'Cinematic luxury modern office wealth mindset thumbnail')
 pexels_key = os.environ.get('PEXELS_API_KEY')
 chat_id = os.environ.get('CHAT_ID')
 telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 
-# 👇 Channel Watermark
-channel_name = "Psychology®" 
+# 👇 Channel Watermark (Updated for new niche)
+channel_name = "Wealth Psychology®" 
 
 print(f"DEBUG: Processing {len(scenes_data)} scenes async...")
 
-# 👇 Ultra-safe fallback keywords for guaranteed videos
-FALLBACK_KEYWORDS = ["shadows moving", "dark room", "cinematic face", "night city", "abstract dark", "black background"]
+# 👇 Ultra-safe fallback keywords for guaranteed videos (Updated for Wealth/Finance aesthetics)
+FALLBACK_KEYWORDS = ["modern city architecture", "luxury office desk", "abstract chess game", "wall street city", "minimalist luxury", "clean aesthetic background"]
 
 TEMP_DIR = "/dev/shm" if os.path.exists("/dev/shm") else os.getcwd()
 
@@ -32,7 +32,8 @@ async def get_audio_duration(file_path):
         return 5.0 
 
 async def process_scene(session, i, scene):
-    keyword = scene.get('keyword', 'dark atmosphere')
+    # Updated default keyword
+    keyword = scene.get('keyword', 'modern business')
     text_line = scene.get('text', '').strip()
     if not text_line: return None
     
@@ -76,7 +77,6 @@ async def process_scene(session, i, scene):
                 try:
                     await asyncio.sleep(random.uniform(0.5, 1.5)) # Prevent rate-limiting
                     page = 1 if query == keyword else random.randint(1, 2) 
-                    # Removed size restriction to maximize available videos
                     url = f"https://api.pexels.com/videos/search?query={query}&per_page=15&page={page}&orientation=landscape"
                     
                     async with session.get(url, headers={"Authorization": pexels_key}, timeout=10) as response:
@@ -85,10 +85,8 @@ async def process_scene(session, i, scene):
                             videos = res.get('videos', [])
                             if videos:
                                 random.shuffle(videos)
-                                # Try downloading up to 3 different videos to guarantee success
                                 for v in videos[:3]:
                                     try:
-                                        # Get HD link if available, else fallback to standard
                                         vid_url = v['video_files'][0]['link']
                                         for vf in v['video_files']:
                                             if vf.get('quality') == 'hd':
@@ -98,15 +96,15 @@ async def process_scene(session, i, scene):
                                         async with session.get(vid_url, timeout=15) as vid_resp:
                                             if vid_resp.status == 200:
                                                 vid_bytes = await vid_resp.read()
-                                                if len(vid_bytes) > 50000: # Ensure file is not corrupted
+                                                if len(vid_bytes) > 50000:
                                                     with open(vid_path, "wb") as f:
                                                         f.write(vid_bytes)
                                                     is_valid_video = True
-                                                    break # Exit inner download loop
+                                                    break 
                                     except Exception:
-                                        continue # Try the next video link
+                                        continue 
                 except Exception:
-                    continue # Try the next query/attempt
+                    continue 
 
         # --- 3. VIDEO RENDER ---
         pop_path = os.path.abspath("pop.mp3")
@@ -117,7 +115,6 @@ async def process_scene(session, i, scene):
             if has_pop: cmd += ['-i', pop_path]
             v_filter = f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,format=yuv420p,fps=30,eq=contrast=1.2:saturation=0.85,drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
         else:
-            # Absolute worst-case fallback (if Pexels is completely down)
             cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:d={dur}', '-ss', '0.2', '-i', raw_mp3]
             if has_pop: cmd += ['-i', pop_path]
             v_filter = f"[0:v]drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
@@ -181,7 +178,6 @@ async def main_pipeline():
 
         bgm_path = os.path.abspath("bgm.mp3")
         if os.path.exists(bgm_path):
-            # 👇 FIX: BGM Volume significantly increased to 0.30 (30%)
             bgm_cmd = [
                 'ffmpeg', '-y', '-i', raw_video, '-stream_loop', '-1', '-i', bgm_path,
                 '-filter_complex', '[0:a]volume=1.0[voice];[1:a]volume=0.30[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout_mix];[aout_mix]volume=2.0[aout]',
