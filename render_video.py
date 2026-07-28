@@ -1,4 +1,5 @@
 import os, sys, json, subprocess, time, random, asyncio, re, string
+import urllib.parse
 import aiohttp
 import edge_tts
 import shutil
@@ -12,13 +13,14 @@ pexels_key = os.environ.get('PEXELS_API_KEY')
 chat_id = os.environ.get('CHAT_ID')
 telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN')
 
-# 👇 Channel Watermark (Updated for new niche)
+# 👇 Channel Watermark
 channel_name = "Wealth Psychology®" 
 
 print(f"DEBUG: Processing {len(scenes_data)} scenes async...")
 
-# 👇 Ultra-safe fallback keywords for guaranteed videos (Updated for Wealth/Finance aesthetics)
-FALLBACK_KEYWORDS = ["modern city architecture", "luxury office desk", "abstract chess game", "wall street city", "minimalist luxury", "clean aesthetic background"]
+# --- SMART DYNAMIC FALLBACK KEYWORDS ---
+fallback_env = os.environ.get('FALLBACK_KEYWORDS', 'modern city architecture, luxury office desk, abstract chess game, wall street city, minimalist luxury, clean aesthetic background')
+FALLBACK_KEYWORDS = [kw.strip() for kw in fallback_env.split(',')]
 
 TEMP_DIR = "/dev/shm" if os.path.exists("/dev/shm") else os.getcwd()
 
@@ -31,8 +33,42 @@ async def get_audio_duration(file_path):
     except:
         return 5.0 
 
+async def fetch_pexels_video(session, keyword):
+    queries_to_try = [keyword] + FALLBACK_KEYWORDS
+    for query in queries_to_try:
+        for attempt in range(2):
+            try:
+                await asyncio.sleep(random.uniform(0.1, 0.5))
+                # Jab attempts badhein toh safe page=1 rakho taaki khali result na aaye
+                random_page = random.randint(1, 2) if attempt == 0 else 1 
+                url = f"https://api.pexels.com/videos/search?query={urllib.parse.quote(query)}&per_page=15&page={random_page}&orientation=landscape"
+                
+                async with session.get(url, headers={"Authorization": pexels_key}, timeout=10) as response:
+                    # [IMPROVED]: Added Rate Limit (429) Handling
+                    if response.status == 429:
+                        await asyncio.sleep(2)
+                        continue
+                        
+                    if response.status == 200:
+                        res = await response.json()
+                        videos = res.get('videos', [])
+                        if videos:
+                            random.shuffle(videos)
+                            for v in videos[:3]:
+                                try:
+                                    vid_url = v['video_files'][0]['link']
+                                    for vf in v['video_files']:
+                                        if vf.get('quality') == 'hd':
+                                            vid_url = vf['link']
+                                            break
+                                    return vid_url
+                                except Exception:
+                                    continue
+            except Exception:
+                continue
+    return None
+
 async def process_scene(session, i, scene):
-    # Updated default keyword
     keyword = scene.get('keyword', 'modern business')
     text_line = scene.get('text', '').strip()
     if not text_line: return None
@@ -66,45 +102,28 @@ async def process_scene(session, i, scene):
         
         # --- 2. GUARANTEED VIDEO FETCH & DOWNLOAD LOOP ---
         is_valid_video = False
-        queries_to_try = [keyword] + FALLBACK_KEYWORDS
+        vid_url = await fetch_pexels_video(session, keyword)
         
-        for query in queries_to_try:
-            if is_valid_video: 
-                break
-            for attempt in range(2):
-                if is_valid_video: 
-                    break
+        for download_attempt in range(3):
+            if not vid_url:
+                vid_url = await fetch_pexels_video(session, random.choice(FALLBACK_KEYWORDS))
+                
+            if vid_url:
                 try:
-                    await asyncio.sleep(random.uniform(0.5, 1.5)) # Prevent rate-limiting
-                    page = 1 if query == keyword else random.randint(1, 2) 
-                    url = f"https://api.pexels.com/videos/search?query={query}&per_page=15&page={page}&orientation=landscape"
-                    
-                    async with session.get(url, headers={"Authorization": pexels_key}, timeout=10) as response:
-                        if response.status == 200:
-                            res = await response.json()
-                            videos = res.get('videos', [])
-                            if videos:
-                                random.shuffle(videos)
-                                for v in videos[:3]:
-                                    try:
-                                        vid_url = v['video_files'][0]['link']
-                                        for vf in v['video_files']:
-                                            if vf.get('quality') == 'hd':
-                                                vid_url = vf['link']
-                                                break
-                                                
-                                        async with session.get(vid_url, timeout=15) as vid_resp:
-                                            if vid_resp.status == 200:
-                                                vid_bytes = await vid_resp.read()
-                                                if len(vid_bytes) > 50000:
-                                                    with open(vid_path, "wb") as f:
-                                                        f.write(vid_bytes)
-                                                    is_valid_video = True
-                                                    break 
-                                    except Exception:
-                                        continue 
-                except Exception:
-                    continue 
+                    async with session.get(vid_url, timeout=15) as vid_resp:
+                        if vid_resp.status == 200:
+                            vid_bytes = await vid_resp.read()
+                            # [IMPROVED]: Increased size threshold to 200KB
+                            if len(vid_bytes) > 200000:
+                                with open(vid_path, "wb") as f:
+                                    f.write(vid_bytes)
+                                is_valid_video = True
+                                break 
+                            else:
+                                print(f"Video file too small ({len(vid_bytes)} bytes) on attempt {download_attempt+1}, discarding.")
+                except Exception as e:
+                    print(f"Failed to download video for scene {i} on attempt {download_attempt+1}: {str(e)}")
+            vid_url = None
 
         # --- 3. VIDEO RENDER ---
         pop_path = os.path.abspath("pop.mp3")
@@ -203,7 +222,7 @@ async def main_pipeline():
         
         run_id = os.environ.get('GITHUB_RUN_ID', str(int(time.time())))
         tag_name = f"vid-{run_id}"
-        repo_name = "PsychologyofWealth-cloud/Long" 
+        repo_name = os.environ.get('GITHUB_REPOSITORY', "PsychologyofWealth-cloud/Long") 
         
         try:
             cmd = ['gh', 'release', 'create', tag_name, final_video, '--repo', repo_name, '--notes', 'Automated Video Render']
