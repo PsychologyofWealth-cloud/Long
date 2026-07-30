@@ -134,9 +134,11 @@ async def process_scene(session, i, scene):
             if has_pop: cmd += ['-i', pop_path]
             v_filter = f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,format=yuv420p,fps=30,eq=contrast=1.2:saturation=0.85,drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
         else:
-            cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:d={dur}', '-ss', '0.2', '-i', raw_mp3]
+            # FIX: Added strictly r=30 to lavfi color to match the 30 fps of valid videos
+            cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:r=30:d={dur}', '-ss', '0.2', '-i', raw_mp3]
             if has_pop: cmd += ['-i', pop_path]
-            v_filter = f"[0:v]drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
+            # FIX: Added strict format=yuv420p,fps=30,setsar=1 to the fallback filter so concat doesn't freeze
+            v_filter = f"[0:v]format=yuv420p,fps=30,setsar=1,drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
 
         if has_pop:
             a_filter = "[1:a]volume=1.0[voice];[2:a]volume=0.3[pop];[voice][pop]amix=inputs=2:duration=first:dropout_transition=0[aout_mix];[aout_mix]volume=2.0[aout]"
@@ -150,7 +152,8 @@ async def process_scene(session, i, scene):
             '-filter_complex', filter_complex,
             '-map', '[v]', '-map', a_map,
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
-            '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p',
+            # FIX: Enforced standard audio sample rate (-ar 44100) to prevent audio sync mismatches in concat
+            '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-pix_fmt', 'yuv420p',
             '-t', str(dur), scene_filename
         ]
             
