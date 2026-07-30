@@ -39,12 +39,10 @@ async def fetch_pexels_video(session, keyword):
         for attempt in range(2):
             try:
                 await asyncio.sleep(random.uniform(0.1, 0.5))
-                # Jab attempts badhein toh safe page=1 rakho taaki khali result na aaye
                 random_page = random.randint(1, 2) if attempt == 0 else 1 
                 url = f"https://api.pexels.com/videos/search?query={urllib.parse.quote(query)}&per_page=15&page={random_page}&orientation=landscape"
                 
                 async with session.get(url, headers={"Authorization": pexels_key}, timeout=10) as response:
-                    # [IMPROVED]: Added Rate Limit (429) Handling
                     if response.status == 429:
                         await asyncio.sleep(2)
                         continue
@@ -68,7 +66,7 @@ async def fetch_pexels_video(session, keyword):
                 continue
     return None
 
-async def process_scene(session, i, scene):
+async def process_scene(session, i, scene, total_scenes):
     keyword = scene.get('keyword', 'modern business')
     text_line = scene.get('text', '').strip()
     if not text_line: return None
@@ -100,7 +98,7 @@ async def process_scene(session, i, scene):
         dur = max(1.0, raw_dur - 0.2) 
         fade_out = max(0, dur - 0.5)
         
-        # --- 2. GUARANTEED VIDEO FETCH & DOWNLOAD LOOP ---
+        # --- 2. GUARANTEED VIDEO FETCH ---
         is_valid_video = False
         vid_url = await fetch_pexels_video(session, keyword)
         
@@ -113,46 +111,88 @@ async def process_scene(session, i, scene):
                     async with session.get(vid_url, timeout=15) as vid_resp:
                         if vid_resp.status == 200:
                             vid_bytes = await vid_resp.read()
-                            # [IMPROVED]: Increased size threshold to 200KB
                             if len(vid_bytes) > 200000:
                                 with open(vid_path, "wb") as f:
                                     f.write(vid_bytes)
                                 is_valid_video = True
                                 break 
-                            else:
-                                print(f"Video file too small ({len(vid_bytes)} bytes) on attempt {download_attempt+1}, discarding.")
                 except Exception as e:
-                    print(f"Failed to download video for scene {i} on attempt {download_attempt+1}: {str(e)}")
+                    print(f"Failed to download video for scene {i}: {str(e)}")
             vid_url = None
 
-        # --- 3. VIDEO RENDER ---
+        # --- 3. VIDEO RENDER (NO CAPTIONS, ONLY CHAPTERS & CTA) ---
         pop_path = os.path.abspath("pop.mp3")
+        whoosh_path = os.path.abspath("whoosh.mp3")
         has_pop = os.path.exists(pop_path)
+        has_whoosh = os.path.exists(whoosh_path)
+        
+        is_chapter_scene = (i % 7 == 0 and i != 0)
+        chapter_num = (i // 7) + 1
+        is_last_scene = (i == total_scenes - 1)
 
-        if is_valid_video:
-            cmd = ['ffmpeg', '-y', '-ignore_editlist', '1', '-stream_loop', '-1', '-fflags', '+genpts', '-i', vid_path, '-ss', '0.2', '-i', raw_mp3]
-            if has_pop: cmd += ['-i', pop_path]
-            v_filter = f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,format=yuv420p,fps=30,eq=contrast=1.2:saturation=0.85,drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
+        if is_chapter_scene:
+            # Dark screen chapter transition
+            chap_text = f",drawtext=text='CHAPTER {chapter_num}':fontcolor=white:fontsize=130:x=(w-tw)/2:y=(h-th)/2:enable='between(t,0,3)'"
+            v_fade_in = "fade=t=in:st=0:d=1.0"
+            bg_dim = "eq=contrast=1.0:saturation=0.3:brightness=-0.5" # Dramatically dims background
         else:
-            # FIX: Added strictly r=30 to lavfi color to match the 30 fps of valid videos
-            cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:r=30:d={dur}', '-ss', '0.2', '-i', raw_mp3]
-            if has_pop: cmd += ['-i', pop_path]
-            # FIX: Added strict format=yuv420p,fps=30,setsar=1 to the fallback filter so concat doesn't freeze
-            v_filter = f"[0:v]format=yuv420p,fps=30,setsar=1,drawtext=text='{channel_name}':fontcolor=white@0.3:fontsize=48:x=w-tw-50:y=h-th-50,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out}:d=0.5[v]"
+            chap_text = ""
+            v_fade_in = "fade=t=in:st=0:d=0.5"
+            bg_dim = "eq=contrast=1.2:saturation=0.85"
+
+        # Massive CTA at the end
+        if is_last_scene:
+            chap_text += f",drawtext=text='SUBSCRIBE FOR MORE':fontcolor=white:fontsize=100:x=(w-tw)/2:y=(h-th)/2:box=1:boxcolor=#FF0000@0.9:boxborderw=30:enable='between(t,1.5,15)'"
+
+        wm_text = f",drawtext=text='{channel_name}':fontcolor=white@0.2:fontsize=48:x=w-tw-50:y=h-th-50"
+        v_filter_base = f"format=yuv420p,fps=30,setsar=1,{v_fade_in},fade=t=out:st={fade_out}:d=0.5"
+
+        cmd = ['ffmpeg', '-y']
+        
+        if is_valid_video:
+            cmd += ['-ignore_editlist', '1', '-stream_loop', '-1', '-fflags', '+genpts', '-i', vid_path]
+            v_filter = f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,{bg_dim},{v_filter_base}{wm_text}{chap_text}[v]"
+        else:
+            cmd += ['-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:r=30:d={dur}']
+            v_filter = f"[0:v]{v_filter_base}{wm_text}{chap_text}[v]"
+
+        cmd += ['-ss', '0.2', '-i', raw_mp3]
+
+        # Dynamic Audio Mixing (Voice + Pop + Whoosh)
+        audio_inputs = 1
+        a_filter = "[1:a]volume=1.0[voice];"
+        a_mix_labels = "[voice]"
 
         if has_pop:
-            a_filter = "[1:a]volume=1.0[voice];[2:a]volume=0.3[pop];[voice][pop]amix=inputs=2:duration=first:dropout_transition=0[aout_mix];[aout_mix]volume=2.0[aout]"
-            filter_complex = f"{v_filter};{a_filter}"
+            cmd += ['-i', pop_path]
+            pop_idx = audio_inputs + 1
+            a_filter += f"[{pop_idx}:a]volume=0.3[pop];"
+            a_mix_labels += "[pop]"
+            audio_inputs += 1
+
+        if is_chapter_scene and has_whoosh:
+            cmd += ['-i', whoosh_path]
+            whoosh_idx = audio_inputs + 1
+            a_filter += f"[{whoosh_idx}:a]volume=0.6[whoosh];"
+            a_mix_labels += "[whoosh]"
+            audio_inputs += 1
+
+        if audio_inputs > 1:
+            a_filter += f"{a_mix_labels}amix=inputs={audio_inputs}:duration=first:dropout_transition=0[aout_mix];[aout_mix]volume=2.0[aout]"
             a_map = '[aout]'
         else:
-            filter_complex = v_filter
+            a_filter = ""
             a_map = '1:a'
+
+        if a_filter:
+            filter_complex = f"{v_filter};{a_filter}"
+        else:
+            filter_complex = v_filter
             
         cmd += [
             '-filter_complex', filter_complex,
             '-map', '[v]', '-map', a_map,
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
-            # FIX: Enforced standard audio sample rate (-ar 44100) to prevent audio sync mismatches in concat
             '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-pix_fmt', 'yuv420p',
             '-t', str(dur), scene_filename
         ]
@@ -176,11 +216,12 @@ async def main_pipeline():
     async with aiohttp.ClientSession() as session:
         sem = asyncio.Semaphore(4)
         
-        async def safe_process(session, i, scene):
+        async def safe_process(session, i, scene, total):
             async with sem:
-                return await process_scene(session, i, scene)
+                return await process_scene(session, i, scene, total)
 
-        tasks = [safe_process(session, i, scene) for i, scene in enumerate(scenes_data)]
+        total_scenes = len(scenes_data)
+        tasks = [safe_process(session, i, scene, total_scenes) for i, scene in enumerate(scenes_data)]
         results = await asyncio.gather(*tasks)
         
         results = sorted([r for r in results if r], key=lambda x: x['index'])
