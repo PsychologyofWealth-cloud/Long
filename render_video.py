@@ -111,7 +111,8 @@ async def process_scene(session, i, scene, total_scenes):
                     async with session.get(vid_url, timeout=15) as vid_resp:
                         if vid_resp.status == 200:
                             vid_bytes = await vid_resp.read()
-                            if len(vid_bytes) > 200000:
+                            # 👇 YAHAN SIZE LIMIT 50KB KAR DI HAI TAAKI PEXELS KE CHHOTE VIDEO BHI CHAL SAKEIN 👇
+                            if len(vid_bytes) > 50000:
                                 with open(vid_path, "wb") as f:
                                     f.write(vid_bytes)
                                 is_valid_video = True
@@ -134,7 +135,8 @@ async def process_scene(session, i, scene, total_scenes):
             # Dark screen chapter transition
             chap_text = f",drawtext=text='CHAPTER {chapter_num}':fontcolor=white:fontsize=130:x=(w-tw)/2:y=(h-th)/2:enable='between(t,0,3)'"
             v_fade_in = "fade=t=in:st=0:d=1.0"
-            bg_dim = "eq=contrast=1.0:saturation=0.3:brightness=-0.5" # Dramatically dims background
+            # 👇 YAHAN BRIGHTNESS -0.15 KI HAI TAAKI SCREEN KAALI NA HO 👇
+            bg_dim = "eq=contrast=1.0:saturation=0.3:brightness=-0.15" 
         else:
             chap_text = ""
             v_fade_in = "fade=t=in:st=0:d=0.5"
@@ -158,22 +160,22 @@ async def process_scene(session, i, scene, total_scenes):
 
         cmd += ['-ss', '0.2', '-i', raw_mp3]
 
-        # Dynamic Audio Mixing (Voice + Pop + Whoosh)
+        # 👇 YAHAN AUDIO MIXING KO AFORMAT DEKAR FIX KIYA GAYA HAI 👇
         audio_inputs = 1
-        a_filter = "[1:a]volume=1.0[voice];"
+        a_filter = "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
         a_mix_labels = "[voice]"
 
         if has_pop:
             cmd += ['-i', pop_path]
             pop_idx = audio_inputs + 1
-            a_filter += f"[{pop_idx}:a]volume=0.3[pop];"
+            a_filter += f"[{pop_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.8[pop];"
             a_mix_labels += "[pop]"
             audio_inputs += 1
 
         if is_chapter_scene and has_whoosh:
             cmd += ['-i', whoosh_path]
             whoosh_idx = audio_inputs + 1
-            a_filter += f"[{whoosh_idx}:a]volume=0.6[whoosh];"
+            a_filter += f"[{whoosh_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0[whoosh];"
             a_mix_labels += "[whoosh]"
             audio_inputs += 1
 
