@@ -153,7 +153,8 @@ async def process_scene(session, i, scene, total_scenes):
         
         if is_valid_video:
             cmd += ['-ignore_editlist', '1', '-stream_loop', '-1', '-fflags', '+genpts', '-i', vid_path]
-            v_filter = f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,{bg_dim},{v_filter_base}{wm_text}{chap_text}[v]"
+            # 👇 YAHAN BASS 'setpts=PTS-STARTPTS,' ADD KIYA HAI VIDEO GAYAB HONE SE ROKNE KE LIYE 👇
+            v_filter = f"[0:v]setpts=PTS-STARTPTS,scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,{bg_dim},{v_filter_base}{wm_text}{chap_text}[v]"
         else:
             cmd += ['-f', 'lavfi', '-i', f'color=c=#101015:s=1920x1080:r=30:d={dur}']
             v_filter = f"[0:v]{v_filter_base}{wm_text}{chap_text}[v]"
